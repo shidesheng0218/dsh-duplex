@@ -1,0 +1,6 @@
+# dsh-duplex bundle.
+# The Host half is a no-op placeholder in v0.0.1; the voice UI (client bundle)
+# loads through package.json exports["./client"] + dsh.client.platform.
+- insert:
+    - id: dsh-duplex
+      name: dsh-duplex

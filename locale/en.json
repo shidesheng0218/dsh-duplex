@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "DSH Duplex voice",
+    "description": "Hands-free voice mode for DeepSeek Harness: read assistant replies aloud, dictate into the composer, and (planned) approve actions by voice.",
+    "detail": "docs/DETAIL.md"
+  }
+}

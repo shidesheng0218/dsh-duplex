@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="360" viewBox="0 0 720 360" role="img" aria-label="DSH Duplex voice controls">
+  <rect width="720" height="360" rx="16" fill="#0b1526"/>
+  <rect x="40" y="32" width="640" height="120" rx="12" fill="#111d31"/>
+  <text x="64" y="66" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="14" fill="#7ea6cc">assistant</text>
+  <rect x="64" y="80" width="430" height="9" rx="4.5" fill="#22334d"/>
+  <rect x="64" y="98" width="360" height="9" rx="4.5" fill="#22334d"/>
+  <rect x="64" y="116" width="250" height="9" rx="4.5" fill="#22334d"/>
+  <g transform="translate(606 108)">
+    <rect x="0" y="0" width="34" height="28" rx="8" fill="#1b2d47"/>
+    <path d="M8 11v6h4l6 5V6l-6 5z" fill="#63e6ff"/>
+    <path d="M22 10a5 5 0 0 1 0 8" fill="none" stroke="#63e6ff" stroke-width="2" stroke-linecap="round"/>
+    <path d="M25.5 7a9 9 0 0 1 0 14" fill="none" stroke="#2f8fff" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <rect x="40" y="186" width="640" height="76" rx="12" fill="#111d31"/>
+  <text x="64" y="232" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="14" fill="#5b7fa3">Ask, or hold the mic and speak…</text>
+  <g transform="translate(512 206)">
+    <rect x="0" y="0" width="60" height="36" rx="10" fill="#1b2d47"/>
+    <path d="M26 10a4 4 0 0 1 8 0v8a4 4 0 0 1-8 0z" fill="#f05454"/>
+    <path d="M21 19a9 9 0 0 0 18 0" fill="none" stroke="#f05454" stroke-width="2" stroke-linecap="round"/>
+    <path d="M30 28v4" stroke="#f05454" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(584 206)">
+    <rect x="0" y="0" width="72" height="36" rx="10" fill="#1b2d47"/>
+    <circle cx="18" cy="18" r="4" fill="#2f8fff"/>
+    <text x="30" y="23" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" fill="#8fc2ff">Auto</text>
+  </g>
+  <text x="40" y="312" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="20" fill="#e8f4ff" font-weight="600">dsh-duplex · speak it, hear it</text>
+  <text x="40" y="338" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" fill="#6f93b8">Voice mode for DeepSeek Harness — read aloud, dictate, approve by voice (planned)</text>
+</svg>
