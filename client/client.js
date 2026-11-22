@@ -1,15 +1,17 @@
 /**
  * dsh-duplex — Client half (browser bundle).
  *
- * v0.0.1 ships the "voice out + voice in" foundation:
- *   1. a speak button on every assistant reply (Web Speech TTS, no key needed);
- *   2. a microphone button in the composer input dock (Web Speech ASR) that
- *      writes the transcript into the draft, with optional auto-send;
- *   3. an auto-read toggle that speaks newly settled assistant replies.
+ * v0.1.0 adds the voice *decision* loop on top of the v0.0.1 voice in/out
+ * foundation:
+ *   1. speak + dictate assistant replies (v0.0.1);
+ *   2. announce pending approvals and user questions, then accept a spoken
+ *      decision when voice approval is enabled;
+ *   3. require a second spoken confirmation for high-risk tools;
+ *   4. prefix auto-read replies with a short turn activity summary.
  *
- * Planned in docs/PLAN.md (P0.1+): approval / user-question announcements,
- * condensed tool-result summaries, and a cloud-ASR fallback for the Electron
- * desktop app, where Chromium's Web Speech recognition is usually unavailable.
+ * Safety stance: nothing is ever approved without an explicit spoken decision,
+ * voice approval is off by default, ambiguous speech never settles a request,
+ * and unanswerable/withdrawn requests are left to the UI.
  *
  * Loaded by the DSH client module loader: id must equal the package name.
  */
@@ -24,6 +26,7 @@ window.__ModuleLoader__.load({
     const LS = {
       autoread: 'dsh-duplex.autoread',
       autosend: 'dsh-duplex.autosend',
+      voiceApproval: 'dsh-duplex.voice-approval',
     }
 
     function isZh() {
@@ -55,11 +58,11 @@ window.__ModuleLoader__.load({
     // ----------------------------------------------------------- session text
 
     /**
-     * Read the assistant nodes out of the session snapshot the host passes to
-     * standard slot props. Shape verified against @deepseek-ai/dsh-client-ui-
-     * conversation: session.chat.nodes is a store exposing values().
+     * Every Chat node of the session snapshot the host passes to standard slot
+     * props. Shape verified against @deepseek-ai/dsh-client-ui-chat: the store
+     * exposes values() and each entry wraps a node ({ node }) or is the node.
      */
-    function assistantNodes(session) {
+    function chatNodes(session) {
       const store = session && session.chat && session.chat.nodes
       if (!store) return []
       try {
@@ -75,28 +78,43 @@ window.__ModuleLoader__.load({
       return (entry && entry.node) || entry || null
     }
 
+    function messageIdOf(node) {
+      if (!node) return ''
+      if (typeof node.messageId === 'string') return node.messageId
+      if (node.data && typeof node.data.messageId === 'string') return node.data.messageId
+      return ''
+    }
+
+    function blocksOf(node) {
+      if (!node) return []
+      if (Array.isArray(node.blocks)) return node.blocks
+      if (node.data && Array.isArray(node.data.blocks)) return node.data.blocks
+      if (Array.isArray(node.content)) return node.content
+      return []
+    }
+
     function findAssistantNode(session, messageId) {
       if (!messageId) return null
-      const all = assistantNodes(session)
+      const all = chatNodes(session)
       for (let i = 0; i < all.length; i++) {
         const node = unwrapNode(all[i])
-        if (node && node.kind === 'assistant' && node.messageId === messageId) return node
+        if (node && node.kind === 'assistant' && messageIdOf(node) === messageId) return node
       }
       return null
     }
 
     function lastAssistantNode(session) {
-      const all = assistantNodes(session)
+      const all = chatNodes(session)
       for (let i = all.length - 1; i >= 0; i--) {
         const node = unwrapNode(all[i])
-        if (node && node.kind === 'assistant' && node.messageId) return node
+        if (node && node.kind === 'assistant' && messageIdOf(node)) return node
       }
       return null
     }
 
     function nodeText(node) {
       if (!node) return ''
-      const blocks = node.blocks || node.content || []
+      const blocks = blocksOf(node)
       const parts = []
       for (let i = 0; i < blocks.length; i++) {
         const block = blocks[i]
@@ -113,6 +131,54 @@ window.__ModuleLoader__.load({
 
     function findMessageText(session, messageId) {
       return nodeText(findAssistantNode(session, messageId))
+    }
+
+    /** Turn number carried by an assistant node, when the host supplies one. */
+    function turnOf(node) {
+      if (!node) return undefined
+      if (typeof node.turn === 'number') return node.turn
+      if (node.data && typeof node.data.turn === 'number') return node.data.turn
+      return undefined
+    }
+
+    /** Tool name carried by a tool-call node's root lifecycle, when present. */
+    function toolNameOf(node) {
+      if (!node || node.kind !== 'tool-call') return ''
+      const root = (node.data && node.data.root) || node.root
+      if (!root) return ''
+      if (typeof root.name === 'string' && root.name) return root.name
+      if (root.block && typeof root.block.name === 'string') return root.block.name
+      return ''
+    }
+
+    /**
+     * Build a short spoken summary of the tool activity in the turn that owns
+     * `assistantNode`. Returns '' when the host does not expose enough data.
+     */
+    function summarizeTurn(session, assistantNode) {
+      try {
+        const turn = turnOf(assistantNode)
+        if (turn === undefined) return ''
+        const all = chatNodes(session)
+        const names = []
+        for (let i = 0; i < all.length; i++) {
+          const node = unwrapNode(all[i])
+          if (!node || node.kind !== 'tool-call') continue
+          if (turnOf(node) !== turn) continue
+          const name = toolNameOf(node)
+          if (name) names.push(name)
+        }
+        if (names.length === 0) return ''
+        const counts = {}
+        for (const name of names) counts[name] = (counts[name] || 0) + 1
+        const parts = Object.keys(counts)
+          .sort((a, b) => counts[b] - counts[a])
+          .slice(0, 4)
+          .map((name) => (counts[name] > 1 ? name + ' ×' + counts[name] : name))
+        return t('本轮用了 ' + names.length + ' 个工具：' + parts.join('、') + '。', 'This turn used ' + names.length + ' tool calls: ' + parts.join(', ') + '. ')
+      } catch (_) {
+        return ''
+      }
     }
 
     /** Turn Markdown into something that sounds acceptable through TTS. */
@@ -183,6 +249,7 @@ window.__ModuleLoader__.load({
       index: 0,
       paused: false,
       active: false,
+      onDone: null,
     }
     const speechListeners = new Set()
 
@@ -202,6 +269,7 @@ window.__ModuleLoader__.load({
       speech.index = 0
       speech.paused = false
       speech.active = false
+      speech.onDone = null
       notifySpeech()
     }
 
@@ -229,7 +297,9 @@ window.__ModuleLoader__.load({
     function speakNextChunk() {
       if (!speech.active) return
       if (speech.index >= speech.chunks.length) {
+        const done = speech.onDone
         resetSpeech()
+        if (done) done()
         return
       }
       const synth = window.speechSynthesis
@@ -253,14 +323,22 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function speakText(text, messageId) {
+    /**
+     * Speak text; `onDone` fires after the last chunk (or on stop/error).
+     * @param {string} text - plain text or Markdown.
+     * @param {string} [messageId] - identity used to sync button states.
+     * @param {() => void} [onDone] - completion callback.
+     */
+    function speakText(text, messageId, onDone) {
       if (!speechSupported()) {
+        if (onDone) onDone()
         toast(t('当前环境不支持系统语音合成', 'System speech synthesis is unavailable here'))
         return false
       }
       const spoken = stripMarkdown(text)
       if (!spoken) {
-        toast(t('这条回复没有可朗读的内容', 'This reply has nothing to read aloud'))
+        if (onDone) onDone()
+        toast(t('没有可朗读的内容', 'Nothing to read aloud'))
         return false
       }
       stopSpeaking()
@@ -269,6 +347,7 @@ window.__ModuleLoader__.load({
       speech.index = 0
       speech.paused = false
       speech.active = true
+      speech.onDone = typeof onDone === 'function' ? onDone : null
       speakNextChunk()
       notifySpeech()
       return true
@@ -284,7 +363,6 @@ window.__ModuleLoader__.load({
         } catch (_) {
           /* ignore */
         }
-        // Some engines drop queued chunks after resume; continue defensively.
         if (!synth.speaking) speakNextChunk()
       } else {
         speech.paused = true
@@ -367,7 +445,360 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // ---------------------------------------------------------- speak button
+    // -------------------------------------------------------- speech input
+
+    function getRecognition() {
+      return window.SpeechRecognition || window.webkitSpeechRecognition || null
+    }
+
+    let activeRecognition = null
+
+    function stopListening() {
+      const recognition = activeRecognition
+      activeRecognition = null
+      if (!recognition) return
+      try {
+        recognition.abort()
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    /**
+     * Listen for one spoken answer.
+     * @param {{ timeoutMs?: number, onText: (text: string) => void, onTimeout?: () => void }} options
+     */
+    function listenOnce(options) {
+      const Recognition = getRecognition()
+      stopListening()
+      if (!Recognition) {
+        toast(t('当前环境不支持语音识别，请在界面上操作', 'Speech recognition is unavailable here — answer in the UI'))
+        return false
+      }
+      let recognition
+      try {
+        recognition = new Recognition()
+      } catch (_) {
+        return false
+      }
+      activeRecognition = recognition
+      recognition.lang = isZh() ? 'zh-CN' : 'en-US'
+      recognition.interimResults = false
+      recognition.continuous = false
+      recognition.maxAlternatives = 1
+
+      let settled = false
+      let timer = null
+      const finish = function () {
+        if (settled) return false
+        settled = true
+        if (timer) window.clearTimeout(timer)
+        stopListening()
+        return true
+      }
+
+      timer = window.setTimeout(function () {
+        if (!finish()) return
+        if (options.onTimeout) options.onTimeout()
+      }, options.timeoutMs || 15000)
+
+      recognition.onresult = function (event) {
+        if (settled) return
+        let text = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i]
+          if (result && result[0] && result[0].transcript) text += result[0].transcript
+        }
+        if (!finish()) return
+        options.onText(text.trim())
+      }
+      recognition.onerror = function () {
+        finish()
+      }
+      recognition.onend = function () {
+        finish()
+      }
+      try {
+        recognition.start()
+      } catch (_) {
+        finish()
+        return false
+      }
+      return true
+    }
+
+    // ----------------------------------------------------- decision parsing
+
+    const APPROVE_WORDS = ['批准', '同意', '允许', '允许执行', 'approve', 'approved', 'allow', 'allowed', 'go ahead', 'yes']
+    const REJECT_WORDS = ['拒绝', '不行', '不要', '不允许', '取消', '停止', '别执行', 'reject', 'rejected', 'deny', 'cancel', 'stop', 'no']
+    const CONFIRM_WORDS = ['确认批准', '确认执行', '确定批准', '我确认', 'confirm approve', 'confirm approval', 'confirmed', 'i confirm']
+    const DENY_CONFIRM_WORDS = ['取消', '不要了', '算了', 'cancel', 'abort', 'no']
+
+    function normalizeSpeech(text) {
+      return String(text || '')
+        .toLowerCase()
+        .replace(/[，。！？、,.!?;；:：\s'"“”‘’]/g, '')
+    }
+
+    function includesAny(text, words) {
+      const spoken = normalizeSpeech(text)
+      if (!spoken) return false
+      return words.some(function (word) {
+        return spoken.indexOf(normalizeSpeech(word)) >= 0
+      })
+    }
+
+    const RISKY_TOOL_PATTERN = /^(bash|sh|shell|zsh|pwsh|powershell|cmd|terminal|exec|execute|run_command|computer|cua|desktop_control|browser)/i
+
+    function isRiskyTool(name) {
+      return RISKY_TOOL_PATTERN.test(String(name || ''))
+    }
+
+    // ------------------------------------------------- approval/question loop
+
+    let uiSessionStatus = null
+    let announcedKey = ''
+    let refreshAnnouncements = function () {}
+
+    function clearAnnouncement() {
+      announcedKey = ''
+      stopListening()
+    }
+
+    function settleApproval(interaction, outcome) {
+      try {
+        if (interaction && typeof interaction.answerable === 'boolean' && !interaction.answerable) return
+        if (!interaction || typeof interaction.answer !== 'function') return
+        const pending = interaction.answer(outcome)
+        if (pending && typeof pending.catch === 'function') pending.catch(function () {})
+        speakText(outcome === 'allowed-once' ? t('已批准，继续执行。', 'Approved. Continuing.') : t('已拒绝。', 'Rejected.'), 'dsh-duplex/approval-result')
+      } catch (_) {
+        speakText(t('审批处理失败，请在界面上操作。', 'Could not settle the approval — please answer in the UI.'), 'dsh-duplex/approval-error')
+      }
+    }
+
+    function settleQuestion(interaction, questionId, label) {
+      try {
+        if (interaction && typeof interaction.answerable === 'boolean' && !interaction.answerable) return
+        if (!interaction || typeof interaction.answer !== 'function') return
+        const answer = { answers: [{ id: questionId, selected: [label] }] }
+        const pending = interaction.answer(answer)
+        if (pending && typeof pending.catch === 'function') pending.catch(function () {})
+        speakText(t('已选择：', 'Selected: ') + label, 'dsh-duplex/question-result')
+      } catch (_) {
+        speakText(t('回答失败，请在界面上操作。', 'Could not answer — please use the UI.'), 'dsh-duplex/question-error')
+      }
+    }
+
+    /**
+     * Gap between a spoken prompt and opening the microphone, so the mic does
+     * not hear the tail of the TTS. Tests override it through
+     * `window.__DSH_DUPLEX_LISTEN_DELAY__` (0) to stay deterministic.
+     */
+    const LISTEN_DELAY_MS = typeof window.__DSH_DUPLEX_LISTEN_DELAY__ === 'number' ? window.__DSH_DUPLEX_LISTEN_DELAY__ : 220
+
+    /** Speak, then start listening after that gap. */
+    function speakThenListen(text, messageId, listenOptions) {
+      return speakText(text, messageId, function () {
+        window.setTimeout(function () {
+          listenOnce(listenOptions)
+        }, LISTEN_DELAY_MS)
+      })
+    }
+
+    function askApprovalAgain(interaction, risky, misses) {
+      if (misses >= 1) {
+        speakText(t('没听清，请在界面上决定。', 'I did not catch that — please answer in the UI.'), 'dsh-duplex/approval-giveup')
+        return
+      }
+      speakThenListen(
+        t('没听清。要批准请说“批准”，拒绝请说“拒绝”。', 'I did not catch that. Say approve or reject.'),
+        'dsh-duplex/approval-repeat',
+        { timeoutMs: 12000, onText: function (text) { handleApprovalAnswer(interaction, text, risky, false, misses + 1) } },
+      )
+    }
+
+    function handleApprovalAnswer(interaction, text, risky, confirmedStage, misses) {
+      if (!interaction || (typeof interaction.answerable === 'boolean' && !interaction.answerable)) {
+        clearAnnouncement()
+        return
+      }
+      const allow = includesAny(text, APPROVE_WORDS)
+      const deny = includesAny(text, REJECT_WORDS)
+      if (deny && !allow) {
+        settleApproval(interaction, 'rejected')
+        return
+      }
+      if (!allow) {
+        askApprovalAgain(interaction, risky, misses || 0)
+        return
+      }
+      if (risky && !confirmedStage) {
+        speakThenListen(
+          t('这是高风险操作。请再说一次“确认批准”完成批准，或说“取消”。', 'This is a high-risk action. Say confirm approve to confirm, or cancel.'),
+          'dsh-duplex/approval-confirm',
+          {
+            timeoutMs: 15000,
+            onText: function (second) {
+              if (includesAny(second, DENY_CONFIRM_WORDS)) {
+                speakText(t('已取消，没有执行。', 'Cancelled. Nothing was executed.'), 'dsh-duplex/approval-cancelled')
+                return
+              }
+              if (includesAny(second, CONFIRM_WORDS)) {
+                settleApproval(interaction, 'allowed-once')
+                return
+              }
+              speakText(t('没有确认，操作已搁置，请在界面上决定。', 'Not confirmed — left for you in the UI.'), 'dsh-duplex/approval-held')
+            },
+          },
+        )
+        return
+      }
+      settleApproval(interaction, 'allowed-once')
+    }
+
+    function firstOptionMatching(text, options) {
+      const spoken = normalizeSpeech(text)
+      if (!spoken) return null
+      const zhDigits = ['一', '二', '三', '四', '五']
+      const enOrdinals = ['first', 'second', 'third', 'fourth', 'fifth']
+      // Digits alone ("2"), Chinese ordinals ("第二个", "第二") and English ordinals.
+      if (/^[1-5]$/.test(spoken)) return options[Number(spoken) - 1] || null
+      const ordinal = spoken.match(/第([一二三四五1-5])/)
+      if (ordinal) {
+        const index = /[1-5]/.test(ordinal[1]) ? Number(ordinal[1]) - 1 : zhDigits.indexOf(ordinal[1])
+        if (options[index]) return options[index]
+      }
+      for (let i = 0; i < enOrdinals.length; i++) {
+        if (spoken.indexOf(enOrdinals[i]) >= 0 && options[i]) return options[i]
+      }
+      for (const option of options) {
+        const label = normalizeSpeech(option.label)
+        if (label && (spoken.indexOf(label) >= 0 || label.indexOf(spoken) >= 0)) return option
+      }
+      return null
+    }
+
+    function announceApproval(interaction) {
+      const tool = interaction.toolName || t('未知操作', 'an action')
+      const reason = interaction.reason ? t('，原因：', ', reason: ') + interaction.reason : ''
+      const risky = isRiskyTool(interaction.toolName)
+      const prompt = t(
+        '需要你批准：' + tool + reason + '。要批准请说“批准”，拒绝请说“拒绝”。',
+        'Approval needed for ' + tool + reason + '. Say approve or reject.',
+      )
+      speakThenListen(prompt, 'dsh-duplex/approval:' + interaction.key, {
+        timeoutMs: 15000,
+        onText: function (text) { handleApprovalAnswer(interaction, text, risky, false, 0) },
+      })
+    }
+
+    function announceQuestion(interaction) {
+      const questions = (interaction && interaction.questions) || []
+      const first = questions[0]
+      if (!first) return
+      const options = Array.isArray(first.options) ? first.options : []
+
+      if (interaction.kind === 'plan-review') {
+        const intent = first.intent || {}
+        const approveLabel = typeof intent.approve === 'string' ? intent.approve : t('批准', 'Approve')
+        const decline = options.find(function (option) { return option && option.label !== approveLabel })
+        const plan = first.detail ? stripMarkdown(first.detail).slice(0, 240) : ''
+        const prompt = t(
+          '有一个计划等待确认。' + plan + '。要批准请说“批准”' + (decline ? '，放弃请说“拒绝”' : '') + '。',
+          'A plan is waiting for review. ' + plan + ' Say approve or reject.',
+        )
+        speakThenListen(prompt, 'dsh-duplex/question:' + interaction.key, {
+          timeoutMs: 20000,
+          onText: function (text) {
+            if (includesAny(text, APPROVE_WORDS)) {
+              settleQuestion(interaction, first.id, approveLabel)
+              return
+            }
+            if (decline && includesAny(text, REJECT_WORDS)) {
+              settleQuestion(interaction, first.id, decline.label)
+              return
+            }
+            speakText(t('没听清，请在界面上确认计划。', 'I did not catch that — review the plan in the UI.'), 'dsh-duplex/plan-retry')
+          },
+        })
+        return
+      }
+
+      const canPick = options.length > 0 && options.length <= 5 && first.multiSelect !== true && questions.length === 1
+      if (!canPick) {
+        const detail = questions.length > 1 ? t('（共 ' + questions.length + ' 个问题）', ' (' + questions.length + ' questions)') : ''
+        speakText(t('有一个问题等待你回答：' + first.question + detail + '。请在界面上选择。', 'A question is waiting: ' + first.question + '. Please answer in the UI.'), 'dsh-duplex/question:' + interaction.key)
+        return
+      }
+      const list = options.map(function (option, index) {
+        return (index + 1) + '、' + option.label
+      }).join(t('；', '; '))
+      const prompt = t('需要你选择：' + first.question + '。选项：' + list + '。请说序号或名称。', 'Choose: ' + first.question + '. Options: ' + list + '. Say the number or the name.')
+      const ask = function (misses) {
+        speakThenListen(prompt, 'dsh-duplex/question:' + interaction.key, {
+          timeoutMs: 18000,
+          onText: function (text) {
+            const picked = firstOptionMatching(text, options)
+            if (picked) {
+              settleQuestion(interaction, first.id, picked.label)
+              return
+            }
+            if (misses >= 1) {
+              speakText(t('没听清选项，请在界面上选择。', 'I did not catch the option — please use the UI.'), 'dsh-duplex/question-giveup')
+              return
+            }
+            ask(misses + 1)
+          },
+        })
+      }
+      ask(0)
+    }
+
+    function installVoiceApproval(ctx) {
+      const service = ctx && ctx.uiSession
+      if (!service || !service.sessionStatus) return
+      uiSessionStatus = service.sessionStatus
+
+      refreshAnnouncements = function () {
+        if (!readFlag(LS.voiceApproval, false)) {
+          clearAnnouncement()
+          return
+        }
+        let next = null
+        try {
+          uiSessionStatus.getSnapshot().forEach(function (status) {
+            if (next || !status || !status.pendingInteraction) return
+            const kind = status.pendingInteraction.kind
+            if (kind === 'approval' || kind === 'question' || kind === 'plan-review') next = status.pendingInteraction
+          })
+        } catch (_) {
+          return
+        }
+        if (!next) {
+          clearAnnouncement()
+          return
+        }
+        if (next.key === announcedKey) return
+        announcedKey = next.key
+        stopListening()
+        if (next.kind === 'approval') announceApproval(next)
+        else announceQuestion(next)
+      }
+
+      ctx.effect(function () {
+        const unsubscribe = uiSessionStatus.subscribe(function () {
+          refreshAnnouncements()
+        })
+        refreshAnnouncements()
+        return function () {
+          if (unsubscribe) unsubscribe()
+          clearAnnouncement()
+        }
+      })
+    }
+
+    // ------------------------------------------------------------ dock icons
 
     const MIC_SVG =
       '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/></svg>'
@@ -375,10 +806,10 @@ window.__ModuleLoader__.load({
       '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h3l4 3.5v-11L7 10z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5"/><path d="M17.8 7.2a7 7 0 0 1 0 9.6"/></svg>'
     const PAUSE_SVG =
       '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor"><rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/></svg>'
-    const STOP_SVG =
-      '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
     const EQ_SVG =
       '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor"><rect class="dsh-duplex-eq" x="4" y="10" width="2.6" height="4" rx="1"/><rect class="dsh-duplex-eq" x="9" y="7" width="2.6" height="10" rx="1"/><rect class="dsh-duplex-eq" x="14" y="9" width="2.6" height="6" rx="1"/><rect class="dsh-duplex-eq" x="19" y="11" width="2.6" height="2" rx="1"/></svg>'
+
+    // ---------------------------------------------------------- speak button
 
     function SpeakButton(props) {
       const [state, setState] = React.useState('idle') // idle | speaking | paused
@@ -444,10 +875,6 @@ window.__ModuleLoader__.load({
     }
 
     // ------------------------------------------------------------ mic button
-
-    function getRecognition() {
-      return window.SpeechRecognition || window.webkitSpeechRecognition || null
-    }
 
     function MicButton(props) {
       const [listening, setListening] = React.useState(false)
@@ -564,8 +991,6 @@ window.__ModuleLoader__.load({
 
     // -------------------------------------------------------- auto-read toggle
 
-    // The composer dock receives standard Session props (useSession, useInput,
-    // inputActions). Wrap the toggle so those hooks are called legally.
     function AutoReadToggleSlot(props) {
       const [on, setOn] = React.useState(function () {
         return readFlag(LS.autoread, false)
@@ -576,12 +1001,17 @@ window.__ModuleLoader__.load({
       const lastId = props.useSession
         ? props.useSession(function (session) {
             const node = lastAssistantNode(session)
-            return node ? node.messageId : ''
+            return node ? messageIdOf(node) : ''
           })
         : ''
       const lastText = props.useSession
         ? props.useSession(function (session) {
             return nodeText(lastAssistantNode(session))
+          })
+        : ''
+      const turnSummary = props.useSession
+        ? props.useSession(function (session) {
+            return summarizeTurn(session, lastAssistantNode(session))
           })
         : ''
 
@@ -593,13 +1023,13 @@ window.__ModuleLoader__.load({
           timerRef.current = window.setTimeout(function () {
             if (spokenRef.current === lastId) return
             spokenRef.current = lastId
-            speakText(lastText, lastId)
+            speakText((turnSummary || '') + lastText, lastId)
           }, 1400)
           return function () {
             if (timerRef.current) window.clearTimeout(timerRef.current)
           }
         },
-        [on, lastId, lastText],
+        [on, lastId, lastText, turnSummary],
       )
 
       function toggle() {
@@ -667,6 +1097,51 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // --------------------------------------------------- voice approval toggle
+
+    function VoiceApprovalToggle() {
+      const [on, setOn] = React.useState(function () {
+        return readFlag(LS.voiceApproval, false)
+      })
+
+      function toggle() {
+        setOn(function (previous) {
+          const next = !previous
+          writeFlag(LS.voiceApproval, next)
+          if (next) {
+            stopSpeaking()
+            toast(
+              t(
+                '语音审批已开启：审批会播报并等待你口头决定；bash 等高风险操作需要二次确认。',
+                'Voice approval on: prompts are spoken and wait for your spoken decision; high-risk tools need a second confirmation.',
+              ),
+            )
+          } else {
+            stopListening()
+            toast(t('语音审批已关闭', 'Voice approval off'))
+          }
+          refreshAnnouncements()
+          return next
+        })
+      }
+
+      const label = on ? t('语音审批：开', 'Voice approval: on') : t('语音审批：关', 'Voice approval: off')
+
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'dsh-duplex-btn dsh-duplex-approval' + (on ? ' is-on' : ''),
+          title: label,
+          'aria-pressed': on,
+          'aria-label': label,
+          onClick: toggle,
+        },
+        h('span', { className: 'dsh-duplex-approval-shield' }, '🎙'),
+        t('语音审批', 'Voice'),
+      )
+    }
+
     // ------------------------------------------------------------------ styles
 
     const CSS = [
@@ -687,6 +1162,9 @@ window.__ModuleLoader__.load({
       '.dsh-duplex-autoread-dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.35;transition:opacity .15s ease}',
       '.dsh-duplex-autoread.is-on{color:#2f8fff}',
       '.dsh-duplex-autoread.is-on .dsh-duplex-autoread-dot{opacity:1;box-shadow:0 0 6px currentColor}',
+      '.dsh-duplex-approval{font-size:11px;letter-spacing:.02em}',
+      '.dsh-duplex-approval-shield{font-size:11px;line-height:1}',
+      '.dsh-duplex-approval.is-on{color:#f0a54f}',
     ].join('\n')
 
     function ensureStyles() {
@@ -702,12 +1180,14 @@ window.__ModuleLoader__.load({
 
     // ----------------------------------------------------------- client plugin
 
-    const inject = ['slots']
+    const inject = ['slots', 'uiSession']
 
     function apply(ctx) {
       ctx.effect(function () {
         return ensureStyles()
       })
+
+      installVoiceApproval(ctx)
 
       ctx.slots.inject('conversation.chat.assistant-actions', function () {
         return ctx.slots.register(
@@ -754,6 +1234,18 @@ window.__ModuleLoader__.load({
             label: t('说完自动发送', 'Auto-send'),
           },
           AutoSendToggle,
+        )
+      })
+
+      ctx.slots.inject('conversation.input.dock', function () {
+        return ctx.slots.register(
+          {
+            name: 'conversation.input.dock',
+            id: 'dsh-duplex-voice-approval',
+            order: 23,
+            label: t('语音审批', 'Voice approval'),
+          },
+          VoiceApprovalToggle,
         )
       })
     }

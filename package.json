@@ -1,7 +1,7 @@
 {
   "name": "dsh-duplex",
-  "version": "0.0.1",
-  "description": "Hands-free voice mode for DeepSeek Harness: read replies aloud, dictate into the composer, approve by voice. 语音双工：说需求、听结论、语音审批。",
+  "version": "0.1.0",
+  "description": "Hands-free voice mode for DeepSeek Harness: read replies aloud, dictate, answer approvals by voice with high-risk double confirmation. 语音双工：说需求、听结论、语音审批。",
   "type": "module",
   "scripts": {
     "check": "node --check host/index.js && node --check client/client.js",
@@ -22,7 +22,8 @@
     "icon.svg",
     "README.md",
     "README.zh.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "dsh": {
     "bundle": {
@@ -46,7 +47,11 @@
     "speech",
     "tts",
     "hands-free",
-    "accessibility"
+    "accessibility",
+    "voice-approval",
+    "approvals",
+    "speech-synthesis",
+    "deepseek"
   ],
   "license": "MIT",
   "repository": {

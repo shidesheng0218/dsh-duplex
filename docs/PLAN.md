@@ -1,8 +1,8 @@
-# dsh-duplex 执行计划（1 个月版）
+# dsh-duplex 执行计划
 
 > 项目：给 DeepSeek Harness 的语音双工/免手模式
-> 目标：4 周内发布 v1.0，90 天冲 5k★（基准 2–4k，P≈20%）
-> 状态：v0.0.1 骨架已落地（朗读 + 语音输入 + 自动朗读），见 README
+> 目标：90 天冲 5k★（基准 2–4k）；北极星指标是"语音审批被真实使用"的次数
+> 当前版本：**v0.1.0**（语音审批 + 提问/计划语音回答 + 本轮摘要已上线）
 
 ---
 
@@ -10,163 +10,115 @@
 
 | 时间点 | 指标 | 不达标动作 |
 |---|---|---|
-| 第 10 天 | 300★ + 20 份真实使用反馈 | 停止打磨，转 dshguard（见调研报告 §6） |
-| 第 21 天 | 1,000★ + 语音审批可用 + 1 个 UP 主/KOL 转发 | 收敛为"语音审批小工具"，砍手机端 |
-| 第 30 天 | 2,000★ + 15 个真实日活 | 继续但停止扩张，转维护 |
-| 第 90 天 | 5,000★ | — |
+| 发布后 10 天 | 300★ + 20 份真实使用反馈 | 收敛为"语音审批"小工具，砍手机端 |
+| 发布后 21 天 | 1,000★ + 语音审批可用 + 1 个 UP 主/KOL 转发 | 停止功能扩张，只做兼容与修复 |
+| 发布后 30 天 | 2,000★ + 15 个真实日活 | 转维护模式 |
+| 90 天 | 5,000★ | — |
 
-北极星指标不是 star，而是**"语音审批"被真实使用的次数**（会写进 v0.1 日志开关）。
+## 1. 已完成
 
-## 1. v0.0.1 已完成（本次）
+### v0.0.1（2026-11-18）
+- [x] 可安装 bundle（`package.json` + `cordis.patch.yml` + host/client 双入口）
+- [x] 展示元数据（locale/icon/详情页）、双语 README、MIT
+- [x] 回复朗读（暂停/继续/停止、跳过代码块与链接）
+- [x] 自动朗读、麦克风转写入草稿（可选自动发送）
+- [x] CI：`node --check` + 清单校验 + 零依赖客户端冒烟测试
 
-- [x] 可安装的 bundle 骨架（`package.json` + `cordis.patch.yml` + host/client 双入口）
-- [x] 展示元数据（`locale/en.json`、`locale/zh.json`、`icon.svg`、`docs/DETAIL.md`、`docs/preview.svg`）
-- [x] 助手回复朗读按钮（暂停/继续/停止；跳过代码块；分块朗读）
-- [x] 自动朗读开关（新回复稳定 1.4s 后朗读；localStorage 持久化）
-- [x] 输入框麦克风（Web Speech ASR → 写入草稿，可选自动发送）
-- [x] 中英双语 README + 计划 + demo 脚本
-- [x] `node --check` / JSON 校验通过
+### v0.1.0（2026-11-22）
+- [x] **语音审批**：播报待审批操作 → 口头"批准/拒绝" → 结束宿主审批
+- [x] **高风险二次确认**：bash/shell/pwsh/terminal/exec/computer/browser 等需再说"确认批准"，"取消"即中止
+- [x] **提问/计划语音回答**：单选 ≤5 选项按序号或名称回答；plan-review 说批准/拒绝；多选/多问题只播报
+- [x] **本轮工具摘要**：自动朗读前播报"本轮用了 N 个工具：…"
+- [x] 安全行为：听不清最多追问一次后交还界面；已撤回/不可答请求跳过；未知 pending 类型忽略；无 LLM 代答
+- [x] 朗读与识别的时序修复（TTS 结束后 220ms 才开麦，避免回声）
+- [x] 49 项冒烟测试（覆盖批准/拒绝/二次确认/取消/序号选择/听不清/撤回/多选/摘要）
+- [x] `CHANGELOG.md`、README/DETAIL 重写
 
-**待你验证（安装后）**：两个 slot 是否真的渲染在预期位置、按钮是否符合主题、Electron 端 TTS 是否可控。
+## 2. 已核验的扩展点（写代码前先读，别猜）
 
-## 2. 经核验的扩展点（写代码前先读，别猜）
-
-以下来自本机 DSH 0.2.2-rc.3 的包源码/文档，已核对：
+以下来自本机 DSH **0.2.2-rc.5** 的包源码/文档，均已核对：
 
 | 需求 | 扩展点 | 证据 |
 |---|---|---|
+| 监听待审批/提问 | `ctx.uiSession.sessionStatus`（`HostObservable<SessionStatusSnapshot>`，`getSnapshot()/subscribe()`）；`SessionStatus.pendingInteraction` | `@deepseek-ai/dsh-client-ui-session/src/client/index.ts` |
+| 审批对象 | `PendingApproval`：`kind:'approval'`、`key`、`toolName`、`reason`、`answerable`、`answer('allowed-once'\|'rejected')` | `@deepseek-ai/dsh-client-ui-approval/src/client/contract/slots.ts` |
+| 提问对象 | `PendingQuestion`：`kind:'question'\|'plan-review'`、`questions[]`、`answer({answers:[{id,selected:[label]}]})`；选项 `{label, description?}`；plan-review 的 `intent.approve` 是批准选项标签 | `@deepseek-ai/dsh-client-ui-user-questions/src/client/contract/slots.ts`、`@deepseek-ai/dsh-user-questions/src/types.ts` |
 | 给每条助手回复加按钮 | slot `conversation.chat.assistant-actions`，props 含 `messageId`、`useSession` | 现有插件 dsh-omi-voice 的 client.js |
-| 输入框工具条 | slot `conversation.input.dock`（list, session scope），外层 `conversation.input.overlay/left/right` 也可用 | `@deepseek-ai/dsh-client-ui-conversation/src/client/contract/slots.ts` |
-| 写入/发送草稿 | 标准 props `inputActions`：`setDraft(text)`、`insertText(text, span)`、`captureInsertion()`、`submit()`、`insertQuote()` | 同上 `src/client/contract/input.ts`（`interface InputActions`） |
-| 读会话消息 | `session.chat.nodes.values()` → `{node}`，`node.kind === 'assistant'`，`node.messageId`，`node.blocks[].kind === 'text'` | 同上 + 现有插件实现 |
-| 审批/提问事件 | `docs/subsystems/approval.md`、`conversation.md`、`commands.md`；Host 侧 `ctx.on(...)` | 待 W2 精读 |
-| 宿主配置持久化 | `references/configuration.md`（Host config 服务） | 待 W2 精读 |
-| 插件可见文案 | Client locale 服务（v0 先用 `document.lang` 判断） | `references/ui-plugin.md` |
+| 输入框工具条 | slot `conversation.input.dock`（list, session scope） | `dsh-client-ui-conversation/src/client/contract/slots.ts` |
+| 写入/发送草稿 | 标准 props `inputActions`：`setDraft(text)`、`insertText`、`captureInsertion()`、`submit()` | 同上 `contract/input.ts` |
+| 会话快照 | `session.chat.nodes.values()` → `{node}`；助手 `kind:'assistant'`（`messageId`/`turn`/`blocks`，或 `data.*`）；工具 `kind:'tool-call'`（`data.root.name`） | `dsh-client-ui-chat/src/client/contract/chat-nodes.ts` |
+| 虚拟环境 | 客户端 `inject` 可加 `uiSession`；`ctx.effect` 注册清理 | 审批插件的 `inject` 列表 |
 
-**约束**：资源注册必须走 `ctx.effect`/`ctx.on` 并返回清理函数；不要替换 app root、不要改宿主 DOM；不要写 `$DSH_HOME` 或 profile 文件。
+**约束**：资源注册必须走 `ctx.effect`/`ctx.on` 并返回清理；不要替换 app root、不要改宿主 DOM；不要写 `$DSH_HOME` 或 profile 文件。
 
-## 3. 四周计划
+## 3. 下一阶段（P1，2 周）
 
-### 第 1 周（11-17 → 11-23）：能装、能用、能量化
+### P1-a 连续对话与打断（3–4 天）
+- 免按键连续模式：一轮回答后自动回到聆听；说"停/等一下"立即打断 TTS
+- 全局快捷键（若 Client 提供键盘注册能力；否则用输入框按钮长按）
+- 播报队列与优先级：审批 > 计划确认 > 回合摘要 > 用户点读
 
-- 安装到 `web` profile 与 Desktop，截图验证两个 slot 的位置与主题适配
-- 修 v0.0.1 的渲染/交互问题；确认卸载后无残留样式
-- 加"语音设置"：音色、语速、自动朗读/自动发送（先 localStorage，W3 迁到 Host config）
-- 建立 `compatibility.json` + README 兼容性表（DSH web / Desktop / TUI）
-- 发布 `v0.0.2`（npm + GitHub Release + 预打包 tgz）
-- 素材：dark/light 截图各 3 张、10s GIF（点朗读 → 播报）
+### P1-b 云端/本地 ASR 兜底（4–5 天，桌面端关键）
+- 设置项：OpenAI 兼容 `/audio/transcriptions` 端点（Whisper 类）、本地 whisper.cpp server、豆包 ASR
+- Key 存 DSH credentials 或本地加密存储；Settings 面板标明数据发往何处
+- 识别结果先写入草稿（可编辑），不直接提交
 
-### 第 2 周（11-24 → 11-30）：P0.1 语音审批（核心差异点）
+### P1-c 设置面板与配置持久化（2 天）
+- 音色、语速、语言、回声间隔、风险工具清单、是否允许语音审批、自动朗读/发送
+- 从 localStorage 迁移到 Host 配置（`Config` schema），保留 localStorage 兼容
 
-- 精读 `docs/subsystems/approval.md`：审批请求的生命周期、接受/拒绝的动作
-- Host 半边：订阅审批/提问事件，把"待审批摘要 + 选项"推给 Client（Remote 方法或事件总线，二选一，写下决策）
-- Client：播报"要执行 rm -rf build，批准吗？"→ 说"批准/拒绝"→ 调审批动作
-- 安全设计（必须）：
-  - 破坏性操作（删除、提权、外部网络写入）要求**口头二次确认**，且默认关闭"全语音批准"
-  - 审批播报只念结构化摘要，不念原始命令全文（避免注入）
-  - 所有语音批准在会话里留下可见记录（可审计）
-- 发布 `v0.1.0`，README 首屏换成"语音审批"演示 GIF
+### P1-d 兼容性与发布（1–2 天）
+- `compatibility.json` 记录实测宿主版本（web/desktop/headless）
+- 48h 内跟进官方 rc（当前上游：0.2.2-rc.5 稳定、0.2.3-alpha.2 预览）
+- 发布 v0.2.0
 
-### 第 3 周（12-01 → 12-07）：P0.2 摘要 + P1 连续对话
+## 4. 安全边界（已实现，不可回退）
 
-- 摘要引擎：先规则（工具名 + 成功/失败 + 计数 + 关键文件），再可选小模型压缩到 ≤2 句
-- 连续对话模式 + 打断（barge-in）：播报中说话即停，转写进入下一轮
-- 全局快捷键（若 Client 提供键盘注册能力则实现；否则用输入框按钮长按）
-- 迁移设置到 Host config，补 `Config` schema
-- 发布 `v0.2.0`
+- 语音审批默认关闭；没有明确口头决定绝不批准
+- 高风险工具二次确认；确认环节说"取消"即中止
+- 听不清 → 追问一次 → 交还界面；已撤回/不可答请求跳过
+- 多选、多问题、未知 pending 类型只播报不代答
+- 无 LLM 代答：语音只是输入方式，决定必须来自人
+- 音频不落盘、不保存转写；云 ASR 必须显式配置并在设置页标注
 
-### 第 4 周（12-08 → 12-14）：发布周
+## 5. 发布 playbook
 
-- 录制 30s/90s 演示（脚本见 `docs/demo-script.md`），B 站 + YouTube 双版
-- README 定稿：量化对比表（手动读 vs 语音播报耗时）、兼容性矩阵、FAQ
-- 提交：awesome-dsh-plugin（一个 YAML）、dsh-plugin-radar、dshfind、dsh-market 索引；加 topic `dsh-plugin`
-- 发布 `v1.0.0` + 双语发布文案
-- 首 72 小时执行（见 §6）；之后每天 2 小时响应 issue/兼容上游 rc
-- **Stretch（有精力再做）**：手机 PWA 扫码连本机、锁屏播报（P2）
+### 现在（v0.1.0 已发布）
+- [x] npm 版本号、CHANGELOG、CI
+- [x] Release：预打包 `.tgz` + SHA256SUMS
+- [ ] **提交 awesome-dsh-plugin**：新增 `data/plugins/shidesheng0218__dsh-duplex.yml`（Voice & Audio 分类），描述写"朗读 + 语音审批"
+- [ ] dsh-plugin-radar `PLUGINS.md` 登记、dshfind 提交、dsh-market 索引
+- [ ] 官方 Discord **Show Your Plugins** + GitHub Discussions **Show Your Plugins!**（只有 11 条，竞争极小）
+- [ ] 录制 30s GIF：语音审批 + 高风险二次确认（脚本见 `docs/demo-script.md`）
+- [ ] 发布文案：EN 先（Show HN / r/LocalLLaMA / X），24h 后中文（B 站 / V2EX / 知乎 / 掘金）
 
-## 4. 技术方案要点
+### 每周
+- 48h 内适配官方新 rc；1 次 minor 发布；issue 24h 内响应
+- README 首屏保持"一条 GIF + 一句数字"
 
-### 4.1 TTS 分层
+**不要做**：star 换功能、付费刷量、把未验证的能力写进 README。
 
-| 层 | 方案 | 何时用 |
-|---|---|---|
-| v0 默认 | `window.speechSynthesis`（系统音色，零 Key，离线） | 现在 |
-| v1 可选 | Edge TTS（免费、自然中文） | W3 起，用户可选 |
-| v1.5 BYOK | 豆包 / Qwen3-TTS / 本地 | 有人要求再做，避免过早复杂 |
-
-播报队列与优先级：**审批 > 计划确认 > 回合结束摘要 > 用户主动点读**；同一时刻只播一个，新的高优先级打断低优先级。
-
-### 4.2 ASR 分层（Electron 是硬约束）
-
-| 环境 | 方案 |
-|---|---|
-| Chrome/Edge Web UI | Web Speech（零配置，v0 已实现） |
-| Electron Desktop | v0 提示不可用；v1 接 OpenAI 兼容 `/audio/transcriptions`（Whisper 类端点）、本地 whisper.cpp server、或豆包 ASR（BYOK，配置项） |
-| 手机浏览器 | 先 Web Speech；PWA 阶段再优化 |
-
-配置存放：v0 用 localStorage；v1 用 Host 配置服务，Key 走 DSH credentials（`docs/subsystems/credentials.md`），绝不能写进日志/会话。
-
-### 4.3 摘要策略
-
-- 输入：工具名、参数摘要、结果状态、结果大小、错误行
-- 规则优先：`{tool} {ok|failed} · {n} {unit} · {key file}` → "跑了 12 个测试，2 个失败，都在 auth.ts"
-- 只有规则无法覆盖时才调用小模型（可配置模型），并严格限制在 ≤2 句、≤120 字
-- 绝不把工具原始输出整段送进 TTS
-
-### 4.4 安全与隐私
-
-- 音频不上传、不落盘；转写只写进草稿
-- 云端 ASR/TTS 必须显式配置 + 在 Settings 里标注数据会发往哪里
-- 语音审批默认只允许"非破坏性"操作；破坏性操作双确认
-- 语音识别结果写入会话前给用户可编辑窗口（v0 已有：写草稿不自动发）
-
-## 5. 风险登记
+## 6. 风险登记
 
 | 风险 | 概率 | 影响 | 缓解 |
 |---|---|---|---|
-| Electron 桌面端 ASR 不可用，体验断档 | 高 | 高 | W2 内先做云端 ASR 配置（这是桌面用户的主场景），README 明说 |
-| 语音误批造成破坏 | 中 | 极高 | 默认只播报不批准；破坏性操作双确认 + 会话留痕 |
-| 上游 API 变动（rc 每 2–4 天） | 高 | 中 | CI + `compatibility.json`；48h 内跟进；只依赖稳定 slot/props |
-| 官方跟进语音能力 | 中 | 中 | 护城河是审批 + 摘要 + 手机端，不是 TTS 本身；保持与官方互补 |
-| 新鲜感过后留存低 | 中 | 中 | 主打"离开键盘"场景；自动朗读默认开（可关），让用户每天被动用上 |
-| 延迟/打断体验差 | 中 | 中 | 分块播报 + 首句优先 + 打断即停；先做审批短句，再做长摘要 |
-
-## 6. 发布清单（首 72 小时）
-
-- [ ] npm 发布 `dsh-duplex@1.0.0`，GitHub Release 附预打包 `.tgz` + SHA256
-- [ ] topic：`dsh-plugin`（必须）、`deepseek-harness`、`dsh`、`voice`、`tts`、`speech`、`hands-free`
-- [ ] awesome-dsh-plugin PR：新增一个 `data/plugins/<owner>__dsh-duplex.yml`（Voice & Audio 分类），按要求填 en/zh 描述
-- [ ] dsh-plugin-radar `PLUGINS.md` 登记；dshfind 提交；dsh-market 索引（如支持）
-- [ ] 官方 Discord **Show Your Plugins**、GitHub Discussions 的 **Show Your Plugins!**（只有 11 条，竞争极小）
-- [ ] 加 `https://awesome-dsh-plugin.com/badge.svg`、Trendshift 徽章（上榜后）
-- [ ] 发布文案：EN 先（Show HN / r/LocalLLaMA / X），24h 后中文（B 站 / V2EX / 知乎 / 掘金）
-- [ ] 私信 5 个中腰部 UP 主/KOL 发 90s demo
-- [ ] 首周每天回 issue；48h 内适配官方新 rc
-
-**不要做**：star 换功能、付费刷量、把未验证的能力写进 README。
+| Electron 桌面端 ASR 不可用，体验断档 | 高 | 高 | P1-b 优先做云端 ASR；README 明说 |
+| 语音误批造成破坏 | 中 | 极高 | 默认关闭 + 高风险二次确认 + 口头"取消" + 会话留痕 |
+| 官方跟进语音能力 | 中 | 中 | 护城河是审批闭环 + 摘要 + 手机端；与官方互补 |
+| 上游 API 变动（2–4 天一个 rc） | 高 | 中 | 只依赖稳定 slot/props；CI + compatibility 表；48h 适配 |
+| 新鲜感过后留存低 | 中 | 中 | 主打"离开键盘"场景；自动朗读让用户每天被动用上 |
+| 审批插件竞品（auto-review 255★） | 中 | 中 | 对方是"模型自动批"，我们是"人用嘴批"，定位互斥且更安全 |
 
 ## 7. 文件结构
 
 ```
 dsh-duplex/
-├── package.json           # dsh.bundle + dsh.client 清单
-├── cordis.patch.yml       # 插入 Host 行（v0 为空操作）
-├── host/index.js          # Host 半边（v0 空壳，W2 接审批事件）
-├── client/client.js       # 浏览器 bundle：朗读 / 麦克风 / 自动读 / 自动发
-├── locale/{en,zh}.json    # 插件展示元数据
-├── icon.svg
-├── docs/
-│   ├── PLAN.md            # 本文
-│   ├── DETAIL.md          # 插件详情页
-│   ├── preview.svg        # 详情页配图
-│   └── demo-script.md     # 30s/90s 演示脚本
-├── research/              # 生态调研报告（选题依据）
-├── README.md / README.zh.md
-└── LICENSE (MIT)
+├── package.json / cordis.patch.yml
+├── host/index.js          # Host 半边（当前空壳；审批闭环在客户端）
+├── client/client.js       # 朗读 / 麦克风 / 自动读 / 语音审批
+├── locale/{en,zh}.json / icon.svg
+├── docs/{PLAN,DETAIL,demo-script}.md / preview.svg
+├── scripts/smoke.mjs      # 49 项零依赖测试
+├── research/              # 本地调研（不入库）
+├── README.md / README.zh.md / CHANGELOG.md / LICENSE
 ```
-
-## 8. 立刻要做的三件事
-
-1. 在 DSH 里 **Plugins → Add plugin** 选中本目录，打开会话看按钮是否出现（这是对 v0.0.1 的唯一真实验证）。
-2. 截图发我：我可以据此修 slot 位置/样式，并开始 W2 的审批事件接线。
-3. 决定 ASR 兜底用哪家（OpenAI 兼容 Whisper 端点 / 本地 whisper.cpp / 豆包），我按你的选择写配置页。

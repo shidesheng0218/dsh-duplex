@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "DSH 语音双工",
-    "description": "DeepSeek Harness 免手模式：朗读回复、语音输入到输入框，后续支持语音审批与摘要播报。",
+    "description": "DeepSeek Harness 免手语音模式：朗读回复、语音输入、语音审批（bash 等高风险操作需二次确认）。",
     "detail": "docs/DETAIL.md"
   }
 }
