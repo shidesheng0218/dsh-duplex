@@ -3,8 +3,10 @@
 **Hands-free voice mode for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).**
 Speak your request, hear the result, approve by voice.
 
+[![ci](https://github.com/shidesheng0218/dsh-duplex/actions/workflows/ci.yml/badge.svg)](https://github.com/shidesheng0218/dsh-duplex/actions/workflows/ci.yml)
 [![dsh 0.2.1+](https://img.shields.io/badge/dsh-0.2.1%2B-2f8fff)](https://github.com/deepseek-ai/deepseek-harness)
 [![license MIT](https://img.shields.io/badge/license-MIT-63e6ff)](LICENSE)
+[![release](https://img.shields.io/github/v/release/shidesheng0218/dsh-duplex?label=release)](https://github.com/shidesheng0218/dsh-duplex/releases)
 [![status v0.0.1](https://img.shields.io/badge/status-v0.0.1%20skeleton-f0a54f)](docs/PLAN.md)
 [![plugin topic](https://img.shields.io/badge/topic-dsh--plugin-8b5cf6)](https://github.com/topics/dsh-plugin)
 
@@ -49,10 +51,17 @@ for v0.1 (Whisper-compatible endpoint or a local whisper server).
    speak button on assistant replies and the mic + auto-read controls in the
    composer dock.
 
-CLI alternative once the repo is public:
+CLI alternative:
 
 ```sh
 dsh plugin --profile web add github:shidesheng0218/dsh-duplex
+```
+
+Or install the pinned release tarball (no build step, avoids the pnpm
+minimum-release-age wait):
+
+```sh
+dsh plugin --profile web add https://github.com/shidesheng0218/dsh-duplex/releases/download/v0.0.1/dsh-duplex-0.0.1.tgz
 ```
 
 Uninstall leaves no patches: the client bundle only registers slots and removes
@@ -87,9 +96,8 @@ Plain JavaScript, no build step:
 Validate before installing:
 
 ```sh
-node --check host/index.js
-node --check client/client.js
-for f in package.json locale/*.json; do jq empty "$f"; done
+npm run check   # node --check on host and client entries
+npm test        # manifest checks + client bundle smoke test (no browser needed)
 ```
 
 ## Limitations

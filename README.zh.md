@@ -36,10 +36,16 @@ TTS 正常；语音输入目前需要在 Chrome 里打开同一个 Web UI。云�
    `dsh.bundle.patch`，可直接安装）。
 3. 重启或等 HMR 生效，打开会话即可看到：回复旁的朗读按钮、输入框里的麦克风与"自动读"开关。
 
-仓库公开后的 CLI 安装方式：
+CLI 安装方式：
 
 ```sh
 dsh plugin --profile web add github:shidesheng0218/dsh-duplex
+```
+
+或安装固定版本的 Release 包（无构建步骤，也避开 pnpm 的最短发布等待）：
+
+```sh
+dsh plugin --profile web add https://github.com/shidesheng0218/dsh-duplex/releases/download/v0.0.1/dsh-duplex-0.0.1.tgz
 ```
 
 卸载不留补丁：客户端只注册 slot，样式会随销毁清理。
@@ -70,9 +76,8 @@ dsh plugin --profile web add github:shidesheng0218/dsh-duplex
 安装前自检：
 
 ```sh
-node --check host/index.js
-node --check client/client.js
-for f in package.json locale/*.json; do jq empty "$f"; done
+npm run check   # 对 host/client 入口做 node --check
+npm test        # 清单校验 + 客户端 bundle 冒烟测试（不需要浏览器）
 ```
 
 ## 已知限制

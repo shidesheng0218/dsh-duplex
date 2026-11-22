@@ -3,6 +3,10 @@
   "version": "0.0.1",
   "description": "Hands-free voice mode for DeepSeek Harness: read replies aloud, dictate into the composer, approve by voice. 语音双工：说需求、听结论、语音审批。",
   "type": "module",
+  "scripts": {
+    "check": "node --check host/index.js && node --check client/client.js",
+    "test": "node scripts/smoke.mjs"
+  },
   "exports": {
     ".": "./host/index.js",
     "./client": "./client/client.js",
